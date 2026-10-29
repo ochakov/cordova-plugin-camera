@@ -40,6 +40,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
+import androidx.activity.result.PickVisualMediaRequest;
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia;
 import androidx.core.content.FileProvider;
 import android.util.Base64;
 import android.system.Os;
@@ -95,8 +97,6 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
     private static final String JPEG_MIME_TYPE = "image/jpeg";
     private static final String HEIC_MIME_TYPE = "image/heic";
     private static final String GET_PICTURE = "Get Picture";
-    private static final String GET_VIDEO = "Get Video";
-    private static final String GET_All = "Get All";
     private static final String CROPPED_URI_KEY = "croppedUri";
     private static final String IMAGE_URI_KEY = "imageUri";
 
@@ -382,49 +382,50 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
     // TODO: Images selected from SDCARD don't display correctly, but from CAMERA ALBUM do!
     // TODO: Images from kitkat filechooser not going into crop function
     public void getImage(int srcType, int returnType) {
-        Intent intent = new Intent();
-        String title = GET_PICTURE;
         croppedUri = null;
         croppedFilePath = null;
-        if (this.mediaType == PICTURE) {
+        int requestCode = (srcType + 1) * 16 + returnType + 1;
+
+        if (this.mediaType == PICTURE && this.allowEdit) {
+            Intent intent = new Intent(Intent.ACTION_PICK);
             intent.setType("image/*");
-            if (this.allowEdit) {
-                intent.setAction(Intent.ACTION_PICK);
-                intent.putExtra("crop", "true");
-                if (targetWidth > 0) {
-                    intent.putExtra("outputX", targetWidth);
-                }
-                if (targetHeight > 0) {
-                    intent.putExtra("outputY", targetHeight);
-                }
-                if (targetHeight > 0 && targetWidth > 0 && targetWidth == targetHeight) {
-                    intent.putExtra("aspectX", 1);
-                    intent.putExtra("aspectY", 1);
-                }
-                File croppedFile = createCaptureFile(JPEG);
-                croppedFilePath = croppedFile.getAbsolutePath();
-                croppedUri = Uri.fromFile(croppedFile);
-                intent.putExtra(MediaStore.EXTRA_OUTPUT, croppedUri);
-            } else {
-                intent.setAction(Intent.ACTION_GET_CONTENT);
-                intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.putExtra("crop", "true");
+            if (targetWidth > 0) {
+                intent.putExtra("outputX", targetWidth);
             }
-        } else if (this.mediaType == VIDEO) {
-            intent.setType("video/*");
-            title = GET_VIDEO;
-            intent.setAction(Intent.ACTION_GET_CONTENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-        } else if (this.mediaType == ALLMEDIA) {
-            // I wanted to make the type 'image/*, video/*' but this does not work on all versions
-            // of android so I had to go with the wildcard search.
-            intent.setType("*/*");
-            title = GET_All;
-            intent.setAction(Intent.ACTION_GET_CONTENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            if (targetHeight > 0) {
+                intent.putExtra("outputY", targetHeight);
+            }
+            if (targetHeight > 0 && targetWidth > 0 && targetWidth == targetHeight) {
+                intent.putExtra("aspectX", 1);
+                intent.putExtra("aspectY", 1);
+            }
+            File croppedFile = createCaptureFile(JPEG);
+            croppedFilePath = croppedFile.getAbsolutePath();
+            croppedUri = Uri.fromFile(croppedFile);
+            intent.putExtra(MediaStore.EXTRA_OUTPUT, croppedUri);
+            if (this.cordova != null) {
+                this.cordova.startActivityForResult((CordovaPlugin) this, Intent.createChooser(intent,
+                        new String(GET_PICTURE)), requestCode);
+            }
+            return;
         }
+
+        // Android's photo picker, which needs no storage or media permission. androidx launches the
+        // system picker (Android 13+, or 11+ with the SDK extension), else Google Play services'
+        // backport (see the ModuleDependencies service in plugin.xml), else ACTION_OPEN_DOCUMENT.
+        PickVisualMedia.VisualMediaType visualMediaType = PickVisualMedia.ImageOnly.INSTANCE;
+        if (this.mediaType == VIDEO) {
+            visualMediaType = PickVisualMedia.VideoOnly.INSTANCE;
+        } else if (this.mediaType == ALLMEDIA) {
+            visualMediaType = PickVisualMedia.ImageAndVideo.INSTANCE;
+        }
+        PickVisualMediaRequest request = new PickVisualMediaRequest.Builder()
+                .setMediaType(visualMediaType)
+                .build();
         if (this.cordova != null) {
-            this.cordova.startActivityForResult((CordovaPlugin) this, Intent.createChooser(intent,
-                    new String(title)), (srcType + 1) * 16 + returnType + 1);
+            Intent intent = new PickVisualMedia().createIntent(this.cordova.getActivity(), request);
+            this.cordova.startActivityForResult((CordovaPlugin) this, intent, requestCode);
         }
     }
 
@@ -730,6 +731,10 @@ public class CameraLauncher extends CordovaPlugin implements MediaScannerConnect
      */
     private void processResultFromGallery(int destType, Intent intent) {
         Uri uri = intent.getData();
+        if (uri == null && intent.getClipData() != null && intent.getClipData().getItemCount() > 0) {
+            // Some pickers return the selection only as ClipData
+            uri = intent.getClipData().getItemAt(0).getUri();
+        }
         if (uri == null) {
             if (croppedUri != null) {
                 uri = croppedUri;

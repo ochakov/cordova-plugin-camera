@@ -20,6 +20,7 @@
 
 <plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     id="cordova-plugin-camera"
     version="8.0.1-dev">
     <name>Camera</name>
@@ -64,6 +65,17 @@
                   android:name="android.support.FILE_PROVIDER_PATHS"
                   android:resource="@xml/camera_provider_paths"/>
           </provider>
+          <!-- Lets Google Play services install its photo picker backport on Android 4.4 to 10 -->
+          <service
+              android:name="com.google.android.gms.metadata.ModuleDependencies"
+              android:enabled="false"
+              android:exported="false"
+              tools:ignore="MissingClass">
+              <intent-filter>
+                  <action android:name="com.google.android.gms.metadata.MODULE_DEPENDENCIES" />
+              </intent-filter>
+              <meta-data android:name="photopicker_activity:0:required" android:value="" />
+          </service>
         </config-file>
 
         <config-file target="AndroidManifest.xml" parent="queries">
@@ -75,6 +87,13 @@
             </intent>
             <intent>
                 <action android:name="android.intent.action.PICK" />
+            </intent>
+            <!-- Photo picker fallbacks that androidx's PickVisualMedia looks up on devices without the system picker -->
+            <intent>
+                <action android:name="androidx.activity.result.contract.action.PICK_IMAGES" />
+            </intent>
+            <intent>
+                <action android:name="com.google.android.gms.provider.action.PICK_IMAGES" />
             </intent>
             <intent>
                 <action android:name="com.android.camera.action.CROP" />
@@ -91,6 +110,8 @@
 
         <preference name="ANDROIDX_CORE_VERSION" default="1.6.+"/>
         <framework src="androidx.core:core:$ANDROIDX_CORE_VERSION" />
+        <preference name="ANDROIDX_ACTIVITY_VERSION" default="1.8.0"/>
+        <framework src="androidx.activity:activity:$ANDROIDX_ACTIVITY_VERSION" />
 
         <js-module src="www/CameraPopoverHandle.js" name="CameraPopoverHandle">
             <clobbers target="CameraPopoverHandle" />
